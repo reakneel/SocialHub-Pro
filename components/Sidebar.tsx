@@ -5,6 +5,7 @@ import {
   Calendar, 
   BarChart3, 
   Settings,
+  Users,
   Youtube,
   Twitter,
   Instagram,
@@ -21,6 +22,7 @@ const menuItems = [
   { id: 'dashboard', label: '仪表板', icon: Home },
   { id: 'composer', label: '内容创作', icon: Edit3 },
   { id: 'schedule', label: '发布计划', icon: Calendar },
+  { id: 'tracking', label: '用户追踪', icon: Users },
   { id: 'analytics', label: '数据分析', icon: BarChart3 },
   { id: 'settings', label: '设置', icon: Settings },
 ];

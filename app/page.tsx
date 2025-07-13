@@ -1,15 +1,18 @@
+'use client'
+
 import React, { useState } from 'react';
-import { Header } from './components/Header';
-import { Sidebar } from './components/Sidebar';
-import { Dashboard } from './components/Dashboard';
-import { Composer } from './components/Composer';
-import { Schedule } from './components/Schedule';
-import { Analytics } from './components/Analytics';
-import { Settings } from './components/Settings';
+import { Header } from '@/components/Header';
+import { Sidebar } from '@/components/Sidebar';
+import { Dashboard } from '@/components/Dashboard';
+import { Composer } from '@/components/Composer';
+import { Schedule } from '@/components/Schedule';
+import { Analytics } from '@/components/Analytics';
+import { Settings } from '@/components/Settings';
+import { UserTracking } from '@/components/UserTracking';
 
-type ActiveTab = 'dashboard' | 'composer' | 'schedule' | 'analytics' | 'settings';
+type ActiveTab = 'dashboard' | 'composer' | 'schedule' | 'analytics' | 'settings' | 'tracking';
 
-function App() {
+export default function Home() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -25,6 +28,8 @@ function App() {
         return <Analytics />;
       case 'settings':
         return <Settings />;
+      case 'tracking':
+        return <UserTracking />;
       default:
         return <Dashboard />;
     }
@@ -52,5 +57,3 @@ function App() {
     </div>
   );
 }
-
-export default App;
