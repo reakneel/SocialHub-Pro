@@ -1,67 +1,195 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { AuthService } from '@/lib/auth';
+import { LogService } from '@/lib/logger';
+import { QueueService } from '@/lib/queue';
+import { supabaseAdmin } from '@/lib/supabase';
+import { cache } from '@/lib/redis';
 
-export interface Post {
-  id: string;
-  content: string;
-  platforms: string[];
-  status: 'draft' | 'scheduled' | 'published' | 'failed';
-  scheduledAt?: string;
-  publishedAt?: string;
-  engagement: {
-    likes: number;
-    comments: number;
-    shares: number;
-    views: number;
-  };
-  createdAt: string;
-  updatedAt: string;
-}
-
-// Mock data - in production, this would come from a database
-let posts: Post[] = [
-  {
-    id: '1',
-    content: '新功能发布：AI智能内容优化工具现已上线！',
-    platforms: ['bilibili', 'weibo', 'twitter'],
-    status: 'published',
-    publishedAt: '2024-01-15T10:00:00Z',
-    engagement: { likes: 1250, comments: 89, shares: 156, views: 12500 },
-    createdAt: '2024-01-15T09:30:00Z',
-    updatedAt: '2024-01-15T10:00:00Z',
-  },
-];
-
+/**
+ * @swagger
+ * /api/posts:
+ *   get:
+ *     summary: Get posts with optional filtering
+ *     tags: [Posts]
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [draft, scheduled, published, failed]
+ *         description: Filter by post status
+ *       - in: query
+ *         name: platform
+ *         schema:
+ *           type: string
+ *         description: Filter by platform
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *         description: Number of posts to return
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *         description: Number of posts to skip
+ *     responses:
+ *       200:
+ *         description: Posts retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 posts:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Post'
+ *                 total:
+ *                   type: integer
+ *                 limit:
+ *                   type: integer
+ *                 offset:
+ *                   type: integer
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const status = searchParams.get('status');
-  const platform = searchParams.get('platform');
-  const limit = parseInt(searchParams.get('limit') || '10');
-  const offset = parseInt(searchParams.get('offset') || '0');
+  try {
+    const user = await AuthService.authenticateRequest(request);
 
-  let filteredPosts = posts;
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
 
-  if (status) {
-    filteredPosts = filteredPosts.filter(post => post.status === status);
+    const { searchParams } = new URL(request.url);
+    const status = searchParams.get('status');
+    const platform = searchParams.get('platform');
+    const limit = parseInt(searchParams.get('limit') || '10');
+    const offset = parseInt(searchParams.get('offset') || '0');
+
+    // Check cache first
+    const cacheKey = `posts:${user.id}:${status || 'all'}:${platform || 'all'}:${limit}:${offset}`;
+    let cachedResult = await cache.get(cacheKey);
+    
+    if (cachedResult) {
+      return NextResponse.json(cachedResult);
+    }
+
+    // Build query
+    let query = supabaseAdmin
+      .from('posts')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (status) {
+      query = query.eq('status', status);
+    }
+
+    if (platform) {
+      query = query.contains('platforms', [platform]);
+    }
+
+    const { data: posts, error, count } = await query;
+
+    if (error) {
+      throw error;
+    }
+
+    const result = {
+      posts: posts || [],
+      total: count || 0,
+      limit,
+      offset,
+    };
+
+    // Cache for 5 minutes
+    await cache.set(cacheKey, result, 300);
+
+    return NextResponse.json(result);
+  } catch (error) {
+    LogService.error('Get posts error', error as Error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
-
-  if (platform) {
-    filteredPosts = filteredPosts.filter(post => post.platforms.includes(platform));
-  }
-
-  const paginatedPosts = filteredPosts.slice(offset, offset + limit);
-
-  return NextResponse.json({
-    posts: paginatedPosts,
-    total: filteredPosts.length,
-    limit,
-    offset,
-  });
 }
 
+/**
+ * @swagger
+ * /api/posts:
+ *   post:
+ *     summary: Create a new post
+ *     tags: [Posts]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - content
+ *               - platforms
+ *             properties:
+ *               content:
+ *                 type: string
+ *               platforms:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *               scheduledAt:
+ *                 type: string
+ *                 format: date-time
+ *               mediaUrls:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: uri
+ *     responses:
+ *       201:
+ *         description: Post created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Post'
+ *       400:
+ *         description: Invalid input
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 export async function POST(request: NextRequest) {
   try {
+    const user = await AuthService.authenticateRequest(request);
+
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
-    const { content, platforms, scheduledAt } = body;
+    const { content, platforms, scheduledAt, mediaUrls } = body;
 
     if (!content || !platforms || platforms.length === 0) {
       return NextResponse.json(
@@ -70,22 +198,51 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const newPost: Post = {
-      id: Date.now().toString(),
-      content,
-      platforms,
-      status: scheduledAt ? 'scheduled' : 'published',
-      scheduledAt,
-      publishedAt: scheduledAt ? undefined : new Date().toISOString(),
-      engagement: { likes: 0, comments: 0, shares: 0, views: 0 },
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+    const isScheduled = scheduledAt && new Date(scheduledAt) > new Date();
+    const status = isScheduled ? 'scheduled' : 'draft';
 
-    posts.push(newPost);
+    const { data: newPost, error } = await supabaseAdmin
+      .from('posts')
+      .insert({
+        user_id: user.id,
+        content,
+        platforms,
+        status,
+        scheduled_at: scheduledAt || null,
+        media_urls: mediaUrls || [],
+        engagement: { likes: 0, comments: 0, shares: 0, views: 0 },
+      })
+      .select()
+      .single();
+
+    if (error || !newPost) {
+      throw error || new Error('Failed to create post');
+    }
+
+    // Schedule post if needed
+    if (isScheduled) {
+      await QueueService.schedulePost(newPost.id, user.id, new Date(scheduledAt));
+    }
+
+    // Log post creation
+    await LogService.auditLog({
+      userId: user.id,
+      action: 'post_created',
+      resourceType: 'post',
+      resourceId: newPost.id,
+      details: { content: content.substring(0, 100), platforms, status },
+      ipAddress: request.headers.get('x-forwarded-for') || 'unknown',
+      userAgent: request.headers.get('user-agent') || 'unknown',
+    });
+
+    // Clear cache
+    const cachePattern = `posts:${user.id}:*`;
+    const keys = await cache.getPattern(cachePattern);
+    await Promise.all(keys.map(key => cache.del(key)));
 
     return NextResponse.json(newPost, { status: 201 });
   } catch (error) {
+    LogService.error('Create post error', error as Error);
     return NextResponse.json(
       { error: 'Invalid request body' },
       { status: 400 }
