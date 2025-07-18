@@ -9,10 +9,11 @@ import { Schedule } from '@/components/Schedule';
 import { Analytics } from '@/components/Analytics';
 import { Settings } from '@/components/Settings';
 import { UserTracking } from '@/components/UserTracking';
+import { ApiDocs } from '@/components/ApiDocs';
 
-type ActiveTab = 'dashboard' | 'composer' | 'schedule' | 'analytics' | 'settings' | 'tracking';
+type ActiveTab = 'dashboard' | 'composer' | 'schedule' | 'analytics' | 'settings' | 'tracking' | 'docs';
 
-export default function Home() {
+export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -30,6 +31,8 @@ export default function Home() {
         return <Settings />;
       case 'tracking':
         return <UserTracking />;
+      case 'docs':
+        return <ApiDocs />;
       default:
         return <Dashboard />;
     }
