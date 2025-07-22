@@ -1,370 +1,261 @@
 # SocialHub Pro
 
-A comprehensive multi-platform social media management tool supporting Bilibili, Weibo, Douyu, X (Twitter), and YouTube.
+一个现代化的社交媒体管理平台，支持多平台内容发布、分析和用户跟踪。
 
-## Features
+## 🚀 功能特性
 
-### 🚀 Core Features
-- **Multi-Platform Support**: Manage content across Bilibili, Weibo, Douyu, X (Twitter), and YouTube
-- **Content Creation**: Rich text editor with platform-specific optimization
-- **Scheduling**: Advanced post scheduling with calendar view
-- **User Tracking**: Monitor and analyze specific users across platforms
-- **Analytics**: Comprehensive analytics and reporting
-- **Real-time Dashboard**: Live metrics and performance tracking
+- **多平台支持**: 支持哔哩哔哩、微博、斗鱼、Twitter、YouTube 等主流社交平台
+- **内容管理**: 统一的内容创建、编辑和发布界面
+- **智能调度**: 支持定时发布和批量操作
+- **数据分析**: 实时数据监控和详细的分析报告
+- **用户跟踪**: 跟踪和分析目标用户的社交媒体活动
+- **文件管理**: 支持图片和视频上传，自动优化处理
+- **实时监控**: 系统健康检查和性能监控
+- **安全认证**: JWT 认证和角色权限管理
 
-### 📱 Platform Support
-- **哔哩哔哩 (Bilibili)**: Video content, dynamic posts, live streaming
-- **微博 (Weibo)**: Microblogging, image posts, trending topics
-- **斗鱼 (Douyu)**: Live streaming, gaming content
-- **X (Twitter)**: Tweets, threads, media posts
-- **YouTube**: Video uploads, community posts, shorts
+## 🛠️ 技术栈
 
-### 🎯 User Tracking
-- Track competitors, influencers, and industry leaders
-- Monitor follower growth, engagement rates, and content performance
-- Real-time activity monitoring
-- Custom tags and notes for organization
-- Multi-platform user profiles
+- **前端**: Next.js 14, React 18, TypeScript, Tailwind CSS
+- **后端**: Next.js API Routes, Prisma ORM
+- **数据库**: PostgreSQL
+- **缓存**: Redis
+- **队列**: Bull (Redis-based)
+- **文件处理**: Sharp, Multer
+- **监控**: Winston, Sentry
+- **认证**: JWT, bcrypt
 
-## Tech Stack
+## 📋 系统要求
 
-- **Framework**: Next.js 14 with App Router
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS
-- **Icons**: Lucide React
-- **Deployment**: Netlify
-
-## Getting Started
-
-### Prerequisites
 - Node.js 18+ 
-- npm or yarn
+- PostgreSQL 12+
+- Redis 6+
+- npm 或 pnpm
 
-### Installation
+## 🚀 快速开始
 
-1. Clone the repository:
+### 1. 克隆项目
+
 ```bash
-git clone https://github.com/your-username/socialhub-pro.git
-cd socialhub-pro
+git clone <repository-url>
+cd SocialHub-Pro
 ```
 
-2. Install dependencies:
+### 2. 安装依赖
+
 ```bash
 npm install
+# 或
+pnpm install
 ```
 
-3. Start the development server:
+### 3. 环境配置
+
+复制环境变量示例文件：
+
+```bash
+cp .env.example .env
+```
+
+编辑 `.env` 文件，配置以下必要变量：
+
+```env
+# 数据库连接
+DATABASE_URL="postgresql://username:password@localhost:5432/socialhub_pro"
+
+# Redis 连接
+REDIS_URL="redis://localhost:6379"
+
+# JWT 密钥
+NEXTAUTH_SECRET="your-super-secret-jwt-key-here"
+
+# 其他配置...
+```
+
+### 4. 数据库设置
+
+```bash
+# 生成 Prisma 客户端
+npm run db:generate
+
+# 推送数据库架构
+npm run db:push
+
+# 填充初始数据
+npm run db:seed
+```
+
+### 5. 启动开发服务器
+
 ```bash
 npm run dev
 ```
 
-4. Open [http://localhost:3000](http://localhost:3000) in your browser.
+访问 [http://localhost:3000](http://localhost:3000) 查看应用。
 
-## API Documentation
+## 🔧 一键设置
 
-### Base URL
-```
-http://localhost:3000/api
-```
+我们提供了一键设置脚本：
 
-### Authentication
-All API endpoints require authentication. Include the API key in the header:
-```
-Authorization: Bearer YOUR_API_KEY
+```bash
+npm run setup
 ```
 
-### Endpoints
+这个脚本会自动：
+- 安装依赖
+- 生成 Prisma 客户端
+- 设置数据库
+- 填充初始数据
+- 构建应用
 
-#### Posts Management
+## 📚 API 文档
 
-##### GET /api/posts
-Retrieve posts with optional filtering.
+### 认证端点
 
-**Query Parameters:**
-- `status` (optional): Filter by post status (`draft`, `scheduled`, `published`, `failed`)
-- `platform` (optional): Filter by platform (`bilibili`, `weibo`, `twitter`, `youtube`, `douyu`)
-- `limit` (optional): Number of posts to return (default: 10)
-- `offset` (optional): Number of posts to skip (default: 0)
+- `POST /api/auth/register` - 用户注册
+- `POST /api/auth/login` - 用户登录
 
-**Response:**
-```json
-{
-  "posts": [
-    {
-      "id": "1",
-      "content": "Post content",
-      "platforms": ["bilibili", "weibo"],
-      "status": "published",
-      "publishedAt": "2024-01-15T10:00:00Z",
-      "engagement": {
-        "likes": 1250,
-        "comments": 89,
-        "shares": 156,
-        "views": 12500
-      },
-      "createdAt": "2024-01-15T09:30:00Z",
-      "updatedAt": "2024-01-15T10:00:00Z"
-    }
-  ],
-  "total": 1,
-  "limit": 10,
-  "offset": 0
-}
+### 内容管理
+
+- `GET /api/posts` - 获取帖子列表
+- `POST /api/posts` - 创建新帖子
+- `GET /api/posts/[id]` - 获取单个帖子
+- `PUT /api/posts/[id]` - 更新帖子
+- `DELETE /api/posts/[id]` - 删除帖子
+
+### 平台管理
+
+- `GET /api/platforms` - 获取平台列表
+- `POST /api/platforms` - 连接新平台
+- `PUT /api/platforms` - 更新平台设置
+
+### 数据分析
+
+- `GET /api/analytics` - 获取分析数据
+- `POST /api/analytics` - 创建分析记录
+
+### 用户跟踪
+
+- `GET /api/users` - 获取跟踪用户列表
+- `POST /api/users` - 添加跟踪用户
+
+### 文件上传
+
+- `POST /api/upload` - 上传文件
+- `GET /api/upload` - 获取用户文件列表
+- `DELETE /api/upload` - 删除文件
+
+### 系统监控
+
+- `GET /api/health` - 健康检查
+
+## 🗄️ 数据库架构
+
+项目使用 Prisma ORM 管理数据库，主要数据模型包括：
+
+- **User**: 用户信息
+- **Platform**: 社交平台配置
+- **UserPlatform**: 用户平台连接
+- **Post**: 帖子内容
+- **Analytics**: 分析数据
+- **TrackedUser**: 跟踪用户
+- **File**: 文件记录
+- **AuditLog**: 审计日志
+
+查看完整架构：`prisma/schema.prisma`
+
+## 🔄 队列系统
+
+项目使用 Bull 队列处理异步任务：
+
+- **postQueue**: 处理帖子发布任务
+- **analyticsQueue**: 处理数据分析更新
+
+队列服务包括：
+- 调度帖子发布
+- 调度分析数据更新
+- 取消任务
+- 查询任务状态
+
+## 📊 监控和日志
+
+### 日志系统
+- 使用 Winston 进行结构化日志记录
+- 支持文件和控制台输出
+- 不同级别的日志分类
+
+### 性能监控
+- 请求响应时间跟踪
+- 内存和 CPU 使用监控
+- 数据库查询性能分析
+
+### 健康检查
+- 数据库连接状态
+- Redis 连接状态
+- 系统资源使用情况
+
+## 🔒 安全特性
+
+- JWT 令牌认证
+- 密码加密存储
+- 请求速率限制
+- 输入验证和清理
+- CORS 配置
+- 文件上传安全检查
+
+## 📱 支持的社交平台
+
+| 平台 | 状态 | 功能 |
+|------|------|------|
+| 哔哩哔哩 | ✅ | 发布、分析、用户跟踪 |
+| 微博 | ✅ | 发布、分析、用户跟踪 |
+| 斗鱼 | ✅ | 发布、用户跟踪 |
+| Twitter/X | ✅ | 发布、分析、用户跟踪 |
+| YouTube | ✅ | 发布、分析 |
+
+## 🚀 部署
+
+### 生产环境部署
+
+1. 构建应用：
+```bash
+npm run build
 ```
 
-##### POST /api/posts
-Create a new post.
-
-**Request Body:**
-```json
-{
-  "content": "Your post content",
-  "platforms": ["bilibili", "weibo"],
-  "scheduledAt": "2024-01-16T10:00:00Z" // Optional for scheduled posts
-}
+2. 启动生产服务器：
+```bash
+npm start
 ```
 
-**Response:**
-```json
-{
-  "id": "2",
-  "content": "Your post content",
-  "platforms": ["bilibili", "weibo"],
-  "status": "scheduled",
-  "scheduledAt": "2024-01-16T10:00:00Z",
-  "engagement": {
-    "likes": 0,
-    "comments": 0,
-    "shares": 0,
-    "views": 0
-  },
-  "createdAt": "2024-01-15T11:00:00Z",
-  "updatedAt": "2024-01-15T11:00:00Z"
-}
+### Docker 部署
+
+```bash
+# 构建镜像
+docker build -t socialhub-pro .
+
+# 运行容器
+docker run -p 3000:3000 socialhub-pro
 ```
 
-##### GET /api/posts/[id]
-Retrieve a specific post by ID.
+## 🤝 贡献指南
 
-##### PUT /api/posts/[id]
-Update a specific post.
+1. Fork 项目
+2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 打开 Pull Request
 
-##### DELETE /api/posts/[id]
-Delete a specific post.
+## 📄 许可证
 
-#### Analytics
+本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
 
-##### GET /api/analytics
-Retrieve analytics data.
+## 🆘 支持
 
-**Query Parameters:**
-- `timeRange` (optional): Time range for analytics (`7d`, `30d`, `90d`, `1y`)
-- `platform` (optional): Filter by specific platform
+如果您遇到问题或有疑问，请：
 
-**Response:**
-```json
-{
-  "data": [
-    {
-      "platform": "bilibili",
-      "metrics": {
-        "followers": 45234,
-        "posts": 156,
-        "engagement": 12453,
-        "reach": 234567
-      },
-      "growth": {
-        "followers": 2.1,
-        "engagement": 15.2
-      },
-      "timeRange": "30d"
-    }
-  ],
-  "summary": {
-    "totalFollowers": 156336,
-    "totalPosts": 493,
-    "totalEngagement": 29860,
-    "totalReach": 791355
-  }
-}
-```
+1. 查看 [Issues](../../issues) 页面
+2. 创建新的 Issue
+3. 联系维护者
 
-#### User Tracking
+## 🔄 更新日志
 
-##### GET /api/users
-Retrieve tracked users.
-
-**Query Parameters:**
-- `platform` (optional): Filter by platform
-- `tag` (optional): Filter by tag
-- `active` (optional): Filter by active status (`true`, `false`)
-- `search` (optional): Search by username or display name
-
-**Response:**
-```json
-{
-  "users": [
-    {
-      "id": "1",
-      "username": "tech_guru",
-      "displayName": "科技大师",
-      "avatar": "https://example.com/avatar.jpg",
-      "platforms": [
-        {
-          "platform": "bilibili",
-          "handle": "@tech_guru",
-          "verified": true,
-          "followers": 125000,
-          "following": 456,
-          "posts": 234,
-          "engagement": 8.5,
-          "lastActive": "2024-01-15T10:30:00Z"
-        }
-      ],
-      "tags": ["科技", "KOL", "竞争对手"],
-      "notes": "主要竞争对手，关注其内容策略",
-      "isActive": true,
-      "addedAt": "2024-01-01T00:00:00Z",
-      "lastUpdated": "2024-01-15T10:30:00Z"
-    }
-  ],
-  "total": 1
-}
-```
-
-##### POST /api/users
-Add a new user to track.
-
-**Request Body:**
-```json
-{
-  "username": "new_user",
-  "displayName": "New User",
-  "platforms": [
-    {
-      "platform": "bilibili",
-      "handle": "@new_user",
-      "verified": false,
-      "followers": 1000,
-      "following": 100,
-      "posts": 50,
-      "engagement": 5.0,
-      "lastActive": "2024-01-15T10:00:00Z"
-    }
-  ],
-  "tags": ["新用户"],
-  "notes": "新添加的用户"
-}
-```
-
-#### Platform Management
-
-##### GET /api/platforms
-Retrieve platform connection status and configuration.
-
-**Response:**
-```json
-{
-  "platforms": [
-    {
-      "id": "bilibili",
-      "name": "bilibili",
-      "displayName": "哔哩哔哩",
-      "icon": "🅱️",
-      "connected": true,
-      "lastSync": "2024-01-15T10:30:00Z",
-      "config": {
-        "characterLimit": 2000,
-        "supportsImages": true,
-        "supportsVideos": true,
-        "supportsScheduling": true
-      }
-    }
-  ]
-}
-```
-
-##### POST /api/platforms
-Connect or disconnect a platform.
-
-**Request Body:**
-```json
-{
-  "platformId": "bilibili",
-  "action": "connect" // or "disconnect"
-}
-```
-
-### Error Responses
-
-All endpoints return appropriate HTTP status codes and error messages:
-
-```json
-{
-  "error": "Error message description"
-}
-```
-
-Common status codes:
-- `200`: Success
-- `201`: Created
-- `400`: Bad Request
-- `401`: Unauthorized
-- `404`: Not Found
-- `500`: Internal Server Error
-
-## Project Structure
-
-```
-├── app/
-│   ├── api/                 # API routes
-│   │   ├── posts/          # Posts management
-│   │   ├── analytics/      # Analytics data
-│   │   ├── users/          # User tracking
-│   │   └── platforms/      # Platform management
-│   ├── globals.css         # Global styles
-│   ├── layout.tsx          # Root layout
-│   └── page.tsx            # Home page
-├── components/             # React components
-│   ├── Header.tsx
-│   ├── Sidebar.tsx
-│   ├── Dashboard.tsx
-│   ├── Composer.tsx
-│   ├── Schedule.tsx
-│   ├── Analytics.tsx
-│   ├── Settings.tsx
-│   └── UserTracking.tsx
-├── public/                 # Static assets
-├── next.config.js          # Next.js configuration
-├── tailwind.config.js      # Tailwind CSS configuration
-└── package.json            # Dependencies
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Support
-
-For support, email support@socialhub-pro.com or join our Discord community.
-
-## Roadmap
-
-- [ ] Real-time collaboration
-- [ ] Advanced AI content suggestions
-- [ ] Video editing tools
-- [ ] Mobile app
-- [ ] API rate limiting and caching
-- [ ] Advanced analytics with charts
-- [ ] Webhook support
-- [ ] Team management features
-- [ ] Custom branding options
-- [ ] Integration with more platforms
+查看 [CHANGELOG.md](CHANGELOG.md) 了解版本更新信息。

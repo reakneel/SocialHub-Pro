@@ -1,0 +1,296 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  username      String    @unique
+  name          String?
+  avatar        String?
+  password      String
+  role          Role      @default(USER)
+  isActive      Boolean   @default(true)
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  posts         Post[]
+  platforms     UserPlatform[]
+  trackedUsers  TrackedUser[]
+  sessions      Session[]
+  accounts      Account[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model Platform {
+  id                String         @id
+  name              String         @unique
+  displayName       String
+  icon              String
+  characterLimit    Int
+  supportsImages    Boolean        @default(true)
+  supportsVideos    Boolean        @default(true)
+  supportsScheduling Boolean       @default(true)
+  isActive          Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  // Relations
+  userPlatforms     UserPlatform[]
+  posts             PostPlatform[]
+  trackedUsers      TrackedUserPlatform[]
+
+  @@map("platforms")
+}
+
+model UserPlatform {
+  id           String    @id @default(cuid())
+  userId       String
+  platformId   String
+  connected    Boolean   @default(false)
+  accessToken  String?   @db.Text
+  refreshToken String?   @db.Text
+  expiresAt    DateTime?
+  lastSync     DateTime?
+  config       Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, platformId])
+  @@map("user_platforms")
+}
+
+model Post {
+  id          String      @id @default(cuid())
+  userId      String
+  content     String      @db.Text
+  status      PostStatus  @default(DRAFT)
+  scheduledAt DateTime?
+  publishedAt DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Media attachments
+  images      String[]
+  videos      String[]
+
+  // Engagement metrics
+  totalLikes    Int @default(0)
+  totalComments Int @default(0)
+  totalShares   Int @default(0)
+  totalViews    Int @default(0)
+
+  // Relations
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platforms PostPlatform[]
+  jobs      PostJob[]
+
+  @@map("posts")
+}
+
+model PostPlatform {
+  id           String     @id @default(cuid())
+  postId       String
+  platformId   String
+  status       PostStatus @default(DRAFT)
+  platformPostId String?
+  publishedAt  DateTime?
+  errorMessage String?
+  
+  // Platform-specific engagement
+  likes        Int        @default(0)
+  comments     Int        @default(0)
+  shares       Int        @default(0)
+  views        Int        @default(0)
+  
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  // Relations
+  post     Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  platform Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, platformId])
+  @@map("post_platforms")
+}
+
+model PostJob {
+  id        String    @id @default(cuid())
+  postId    String
+  jobId     String    @unique
+  type      JobType
+  status    JobStatus @default(PENDING)
+  scheduledAt DateTime
+  executedAt  DateTime?
+  errorMessage String?
+  retryCount   Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@map("post_jobs")
+}
+
+model TrackedUser {
+  id          String   @id @default(cuid())
+  userId      String
+  username    String
+  displayName String
+  avatar      String?
+  tags        String[]
+  notes       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platforms TrackedUserPlatform[]
+
+  @@unique([userId, username])
+  @@map("tracked_users")
+}
+
+model TrackedUserPlatform {
+  id           String   @id @default(cuid())
+  trackedUserId String
+  platformId   String
+  handle       String
+  verified     Boolean  @default(false)
+  followers    Int      @default(0)
+  following    Int      @default(0)
+  posts        Int      @default(0)
+  engagement   Float    @default(0)
+  lastActive   DateTime?
+  lastUpdated  DateTime @default(now())
+
+  // Relations
+  trackedUser TrackedUser @relation(fields: [trackedUserId], references: [id], onDelete: Cascade)
+  platform    Platform    @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  @@unique([trackedUserId, platformId])
+  @@map("tracked_user_platforms")
+}
+
+model Analytics {
+  id         String   @id @default(cuid())
+  platformId String
+  date       DateTime @db.Date
+  followers  Int      @default(0)
+  posts      Int      @default(0)
+  engagement Int      @default(0)
+  reach      Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@unique([platformId, date])
+  @@map("analytics")
+}
+
+model FileUpload {
+  id        String     @id @default(cuid())
+  userId    String
+  filename  String
+  originalName String
+  mimeType  String
+  size      Int
+  path      String
+  type      FileType
+  createdAt DateTime   @default(now())
+
+  @@map("file_uploads")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  resource  String
+  resourceId String?
+  details   Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@map("audit_logs")
+}
+
+enum Role {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum PostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+}
+
+enum JobType {
+  PUBLISH_POST
+  UPDATE_ANALYTICS
+  SYNC_USER_DATA
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum FileType {
+  IMAGE
+  VIDEO
+  DOCUMENT
+}
