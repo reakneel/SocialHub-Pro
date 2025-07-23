@@ -1,4 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { prisma } from '@/lib/prisma';
+import { CacheService } from '@/lib/redis';
+import { QueueService } from '@/lib/queue';
+import { AuditService } from '@/lib/monitoring';
+import { 
+  withAuth, 
+  withErrorHandling, 
+  withLogging, 
+  withPerformanceMonitoring,
+  withValidation,
+  withMiddleware,
+  NotFoundError 
+} from '@/lib/middleware';
+import { PostStatus } from '@prisma/client';
 
 export interface Post {
   id: string;
@@ -15,80 +30,217 @@ export interface Post {
   };
   createdAt: string;
   updatedAt: string;
+  images?: string[];
+  videos?: string[];
 }
 
-// Mock data - in production, this would come from a database
-let posts: Post[] = [
-  {
-    id: '1',
-    content: '新功能发布：AI智能内容优化工具现已上线！',
-    platforms: ['bilibili', 'weibo', 'twitter'],
-    status: 'published',
-    publishedAt: '2024-01-15T10:00:00Z',
-    engagement: { likes: 1250, comments: 89, shares: 156, views: 12500 },
-    createdAt: '2024-01-15T09:30:00Z',
-    updatedAt: '2024-01-15T10:00:00Z',
-  },
-];
+// Validation schemas
+const createPostSchema = z.object({
+  content: z.string().min(1, 'Content is required').max(5000, 'Content too long'),
+  platforms: z.array(z.string()).min(1, 'At least one platform is required'),
+  scheduledAt: z.string().datetime().optional(),
+  images: z.array(z.string()).optional(),
+  videos: z.array(z.string()).optional()
+});
 
-export async function GET(request: NextRequest) {
+const updatePostSchema = z.object({
+  content: z.string().min(1).max(5000).optional(),
+  platforms: z.array(z.string()).min(1).optional(),
+  scheduledAt: z.string().datetime().optional(),
+  status: z.enum(['draft', 'scheduled', 'published', 'failed']).optional(),
+  images: z.array(z.string()).optional(),
+  videos: z.array(z.string()).optional()
+});
+
+async function getPosts(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const status = searchParams.get('status');
+  const status = searchParams.get('status') as PostStatus | null;
   const platform = searchParams.get('platform');
-  const limit = parseInt(searchParams.get('limit') || '10');
+  const limit = Math.min(parseInt(searchParams.get('limit') || '10'), 100);
   const offset = parseInt(searchParams.get('offset') || '0');
 
-  let filteredPosts = posts;
+  // Try to get from cache first
+  const cache = CacheService.getInstance();
+  const cacheKey = `posts:${status || 'all'}:${platform || 'all'}:${limit}:${offset}`;
+  const cachedResult = await cache.get(cacheKey);
+  
+  if (cachedResult) {
+    return NextResponse.json(cachedResult);
+  }
 
+  const where: any = {};
+  
   if (status) {
-    filteredPosts = filteredPosts.filter(post => post.status === status);
+    where.status = status;
   }
-
+  
   if (platform) {
-    filteredPosts = filteredPosts.filter(post => post.platforms.includes(platform));
+    where.platforms = {
+      some: {
+        platformId: platform
+      }
+    };
   }
 
-  const paginatedPosts = filteredPosts.slice(offset, offset + limit);
+  const [posts, total] = await Promise.all([
+    prisma.post.findMany({
+      where,
+      include: {
+        platforms: {
+          include: {
+            platform: true
+          }
+        },
+        user: {
+          select: {
+            id: true,
+            username: true,
+            name: true
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: offset
+    }),
+    prisma.post.count({ where })
+  ]);
 
-  return NextResponse.json({
-    posts: paginatedPosts,
-    total: filteredPosts.length,
+  const formattedPosts = posts.map(post => ({
+    id: post.id,
+    content: post.content,
+    platforms: post.platforms.map(p => p.platformId),
+    status: post.status.toLowerCase(),
+    scheduledAt: post.scheduledAt?.toISOString(),
+    publishedAt: post.publishedAt?.toISOString(),
+    engagement: {
+      likes: post.totalLikes,
+      comments: post.totalComments,
+      shares: post.totalShares,
+      views: post.totalViews
+    },
+    createdAt: post.createdAt.toISOString(),
+    updatedAt: post.updatedAt.toISOString(),
+    images: post.images,
+    videos: post.videos,
+    user: post.user
+  }));
+
+  const result = {
+    posts: formattedPosts,
+    total,
     limit,
     offset,
-  });
+  };
+
+  // Cache the result for 5 minutes
+  await cache.set(cacheKey, result, 300);
+
+  return NextResponse.json(result);
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { content, platforms, scheduledAt } = body;
+async function createPost(request: NextRequest, user: any) {
+  const body = await request.json();
+  const validatedData = createPostSchema.parse(body);
 
-    if (!content || !platforms || platforms.length === 0) {
-      return NextResponse.json(
-        { error: 'Content and platforms are required' },
-        { status: 400 }
-      );
+  // Verify platforms exist and user has access
+  const userPlatforms = await prisma.userPlatform.findMany({
+    where: {
+      userId: user.sub,
+      platformId: { in: validatedData.platforms },
+      connected: true
     }
+  });
 
-    const newPost: Post = {
-      id: Date.now().toString(),
-      content,
-      platforms,
-      status: scheduledAt ? 'scheduled' : 'published',
-      scheduledAt,
-      publishedAt: scheduledAt ? undefined : new Date().toISOString(),
-      engagement: { likes: 0, comments: 0, shares: 0, views: 0 },
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    posts.push(newPost);
-
-    return NextResponse.json(newPost, { status: 201 });
-  } catch (error) {
+  if (userPlatforms.length !== validatedData.platforms.length) {
     return NextResponse.json(
-      { error: 'Invalid request body' },
+      { error: 'Some platforms are not connected or accessible' },
       { status: 400 }
     );
   }
+
+  const scheduledAt = validatedData.scheduledAt ? new Date(validatedData.scheduledAt) : null;
+  const isScheduled = scheduledAt && scheduledAt > new Date();
+
+  const post = await prisma.post.create({
+    data: {
+      userId: user.sub,
+      content: validatedData.content,
+      status: isScheduled ? PostStatus.SCHEDULED : PostStatus.DRAFT,
+      scheduledAt,
+      images: validatedData.images || [],
+      videos: validatedData.videos || [],
+      platforms: {
+        create: validatedData.platforms.map(platformId => ({
+          platformId,
+          status: isScheduled ? PostStatus.SCHEDULED : PostStatus.DRAFT
+        }))
+      }
+    },
+    include: {
+      platforms: {
+        include: {
+          platform: true
+        }
+      }
+    }
+  });
+
+  // Schedule publishing jobs if needed
+  if (isScheduled && scheduledAt) {
+    for (const platformId of validatedData.platforms) {
+      await QueueService.schedulePost(post.id, platformId, scheduledAt);
+    }
+  }
+
+  // Log audit event
+  await AuditService.log(
+    'CREATE',
+    'POST',
+    post.id,
+    user.sub,
+    { platforms: validatedData.platforms, scheduled: isScheduled },
+    request.headers.get('x-forwarded-for') || undefined,
+    request.headers.get('user-agent') || undefined
+  );
+
+  // Invalidate cache
+  const cache = CacheService.getInstance();
+  await cache.invalidatePattern('posts:*');
+
+  const formattedPost = {
+    id: post.id,
+    content: post.content,
+    platforms: post.platforms.map(p => p.platformId),
+    status: post.status.toLowerCase(),
+    scheduledAt: post.scheduledAt?.toISOString(),
+    publishedAt: post.publishedAt?.toISOString(),
+    engagement: {
+      likes: post.totalLikes,
+      comments: post.totalComments,
+      shares: post.totalShares,
+      views: post.totalViews
+    },
+    createdAt: post.createdAt.toISOString(),
+    updatedAt: post.updatedAt.toISOString(),
+    images: post.images,
+    videos: post.videos
+  };
+
+  return NextResponse.json(formattedPost, { status: 201 });
 }
+
+// Export handlers with middleware
+export const GET = withMiddleware(
+  getPosts,
+  withErrorHandling,
+  withLogging,
+  withPerformanceMonitoring
+);
+
+export const POST = withMiddleware(
+  (request: NextRequest) => withAuth(request, createPost),
+  withErrorHandling,
+  withLogging,
+  withPerformanceMonitoring
+);

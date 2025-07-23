@@ -1,136 +1,262 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { prisma } from '@/lib/prisma';
+import { CacheService } from '@/lib/redis';
+import { AuditService } from '@/lib/monitoring';
+import { 
+  withAuth, 
+  withErrorHandling, 
+  withLogging, 
+  withPerformanceMonitoring,
+  withMiddleware 
+} from '@/lib/middleware';
 
-export interface TrackedUser {
-  id: string;
-  username: string;
-  displayName: string;
-  avatar: string;
-  platforms: {
-    platform: string;
-    handle: string;
-    verified: boolean;
-    followers: number;
-    following: number;
-    posts: number;
-    engagement: number;
-    lastActive: string;
-  }[];
-  tags: string[];
-  notes: string;
-  isActive: boolean;
-  addedAt: string;
-  lastUpdated: string;
-}
+// Validation schemas
+const trackedUserQuerySchema = z.object({
+  platform: z.string().optional(),
+  tags: z.string().optional(),
+  search: z.string().optional(),
+  page: z.string().regex(/^\d+$/).transform(Number).default('1'),
+  limit: z.string().regex(/^\d+$/).transform(Number).default('10')
+});
 
-// Mock data
-let trackedUsers: TrackedUser[] = [
-  {
-    id: '1',
-    username: 'tech_guru',
-    displayName: '科技大师',
-    avatar: 'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?w=100',
-    platforms: [
-      {
-        platform: 'bilibili',
-        handle: '@tech_guru',
-        verified: true,
-        followers: 125000,
-        following: 456,
-        posts: 234,
-        engagement: 8.5,
-        lastActive: '2024-01-15T10:30:00Z',
-      },
-      {
-        platform: 'weibo',
-        handle: '@科技大师',
-        verified: true,
-        followers: 89000,
-        following: 234,
-        posts: 567,
-        engagement: 6.2,
-        lastActive: '2024-01-15T09:15:00Z',
-      },
-    ],
-    tags: ['科技', 'KOL', '竞争对手'],
-    notes: '主要竞争对手，关注其内容策略',
-    isActive: true,
-    addedAt: '2024-01-01T00:00:00Z',
-    lastUpdated: '2024-01-15T10:30:00Z',
-  },
-];
+const createTrackedUserSchema = z.object({
+  username: z.string().min(1).max(100),
+  platformId: z.string(),
+  displayName: z.string().max(200).optional(),
+  bio: z.string().max(1000).optional(),
+  avatarUrl: z.string().url().optional(),
+  followers: z.number().min(0).optional(),
+  following: z.number().min(0).optional(),
+  posts: z.number().min(0).optional(),
+  tags: z.array(z.string()).optional(),
+  isCompetitor: z.boolean().default(false),
+  notes: z.string().max(2000).optional()
+});
 
-export async function GET(request: NextRequest) {
+const updateTrackedUserSchema = createTrackedUserSchema.partial();
+
+async function getTrackedUsers(
+  request: NextRequest,
+  user: any
+) {
   const { searchParams } = new URL(request.url);
-  const platform = searchParams.get('platform');
-  const tag = searchParams.get('tag');
-  const active = searchParams.get('active');
-  const search = searchParams.get('search');
+  const queryParams = Object.fromEntries(searchParams.entries());
+  const validatedParams = trackedUserQuerySchema.parse(queryParams);
 
-  let filteredUsers = trackedUsers;
+  const { platform, tags, search, page, limit } = validatedParams;
+  const offset = (page - 1) * limit;
+
+  // Check cache first
+  const cache = CacheService.getInstance();
+  const cacheKey = `tracked-users:${user.sub}:${JSON.stringify(validatedParams)}`;
+  
+  const cachedData = await cache.get(cacheKey);
+  if (cachedData) {
+    return NextResponse.json(JSON.parse(cachedData));
+  }
+
+  // Build where clause
+  const where: any = {
+    userId: user.sub
+  };
 
   if (platform) {
-    filteredUsers = filteredUsers.filter(user =>
-      user.platforms.some(p => p.platform === platform)
-    );
+    where.platformId = platform;
   }
 
-  if (tag) {
-    filteredUsers = filteredUsers.filter(user =>
-      user.tags.includes(tag)
-    );
-  }
-
-  if (active !== null) {
-    filteredUsers = filteredUsers.filter(user =>
-      user.isActive === (active === 'true')
-    );
+  if (tags) {
+    const tagArray = tags.split(',').map(tag => tag.trim());
+    where.tags = {
+      hasSome: tagArray
+    };
   }
 
   if (search) {
-    filteredUsers = filteredUsers.filter(user =>
-      user.username.toLowerCase().includes(search.toLowerCase()) ||
-      user.displayName.toLowerCase().includes(search.toLowerCase())
-    );
+    where.OR = [
+      { username: { contains: search, mode: 'insensitive' } },
+      { displayName: { contains: search, mode: 'insensitive' } },
+      { bio: { contains: search, mode: 'insensitive' } }
+    ];
   }
 
-  return NextResponse.json({
-    users: filteredUsers,
-    total: filteredUsers.length,
-  });
-}
+  // Get tracked users with pagination
+  const [trackedUsers, total] = await Promise.all([
+    prisma.trackedUser.findMany({
+      where,
+      include: {
+        platform: true,
+        platforms: {
+          include: {
+            platform: true
+          }
+        }
+      },
+      orderBy: {
+        updatedAt: 'desc'
+      },
+      skip: offset,
+      take: limit
+    }),
+    prisma.trackedUser.count({ where })
+  ]);
 
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { username, displayName, platforms, tags, notes } = body;
+  // Format response
+  const formattedUsers = trackedUsers.map(user => ({
+    id: user.id,
+    username: user.username,
+    displayName: user.displayName,
+    bio: user.bio,
+    avatarUrl: user.avatarUrl,
+    platform: user.platformId,
+    platformName: user.platform.name,
+    followers: user.followers,
+    following: user.following,
+    posts: user.posts,
+    tags: user.tags,
+    isCompetitor: user.isCompetitor,
+    notes: user.notes,
+    lastUpdated: user.updatedAt.toISOString(),
+    createdAt: user.createdAt.toISOString(),
+    platforms: user.platforms.map(p => ({
+      id: p.platformId,
+      name: p.platform.name,
+      followers: p.followers,
+      following: p.following,
+      posts: p.posts,
+      lastUpdated: p.updatedAt.toISOString()
+    }))
+  }));
 
-    if (!username || !platforms || platforms.length === 0) {
-      return NextResponse.json(
-        { error: 'Username and platforms are required' },
-        { status: 400 }
-      );
+  const result = {
+    users: formattedUsers,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit)
+    },
+    summary: {
+      totalUsers: total,
+      competitors: trackedUsers.filter(u => u.isCompetitor).length,
+      totalFollowers: trackedUsers.reduce((sum, u) => sum + (u.followers || 0), 0),
+      platforms: [...new Set(trackedUsers.map(u => u.platformId))].length
     }
+  };
 
-    const newUser: TrackedUser = {
-      id: Date.now().toString(),
-      username,
-      displayName: displayName || username,
-      avatar: 'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?w=100',
-      platforms,
-      tags: tags || [],
-      notes: notes || '',
-      isActive: true,
-      addedAt: new Date().toISOString(),
-      lastUpdated: new Date().toISOString(),
-    };
+  // Cache for 2 minutes
+  await cache.set(cacheKey, JSON.stringify(result), 120);
 
-    trackedUsers.push(newUser);
+  return NextResponse.json(result);
+}
 
-    return NextResponse.json(newUser, { status: 201 });
-  } catch (error) {
+async function createTrackedUser(
+  request: NextRequest,
+  user: any
+) {
+  const body = await request.json();
+  const validatedData = createTrackedUserSchema.parse(body);
+
+  // Verify user has access to this platform
+  const userPlatform = await prisma.userPlatform.findFirst({
+    where: {
+      userId: user.sub,
+      platformId: validatedData.platformId,
+      connected: true
+    }
+  });
+
+  if (!userPlatform) {
     return NextResponse.json(
-      { error: 'Invalid request body' },
-      { status: 400 }
+      { error: 'Platform not connected or accessible' },
+      { status: 403 }
     );
   }
+
+  // Check if user is already being tracked
+  const existingUser = await prisma.trackedUser.findFirst({
+    where: {
+      userId: user.sub,
+      username: validatedData.username,
+      platformId: validatedData.platformId
+    }
+  });
+
+  if (existingUser) {
+    return NextResponse.json(
+      { error: 'User is already being tracked on this platform' },
+      { status: 409 }
+    );
+  }
+
+  // Create tracked user
+  const trackedUser = await prisma.trackedUser.create({
+    data: {
+      userId: user.sub,
+      username: validatedData.username,
+      platformId: validatedData.platformId,
+      displayName: validatedData.displayName,
+      bio: validatedData.bio,
+      avatarUrl: validatedData.avatarUrl,
+      followers: validatedData.followers || 0,
+      following: validatedData.following || 0,
+      posts: validatedData.posts || 0,
+      tags: validatedData.tags || [],
+      isCompetitor: validatedData.isCompetitor,
+      notes: validatedData.notes
+    },
+    include: {
+      platform: true
+    }
+  });
+
+  // Log audit event
+  await AuditService.log(
+    'CREATE',
+    'TRACKED_USER',
+    trackedUser.id,
+    user.sub,
+    validatedData,
+    request.headers.get('x-forwarded-for') || undefined,
+    request.headers.get('user-agent') || undefined
+  );
+
+  // Invalidate cache
+  const cache = CacheService.getInstance();
+  await cache.invalidatePattern(`tracked-users:${user.sub}:*`);
+
+  const formattedUser = {
+    id: trackedUser.id,
+    username: trackedUser.username,
+    displayName: trackedUser.displayName,
+    bio: trackedUser.bio,
+    avatarUrl: trackedUser.avatarUrl,
+    platform: trackedUser.platformId,
+    platformName: trackedUser.platform.name,
+    followers: trackedUser.followers,
+    following: trackedUser.following,
+    posts: trackedUser.posts,
+    tags: trackedUser.tags,
+    isCompetitor: trackedUser.isCompetitor,
+    notes: trackedUser.notes,
+    lastUpdated: trackedUser.updatedAt.toISOString(),
+    createdAt: trackedUser.createdAt.toISOString()
+  };
+
+  return NextResponse.json(formattedUser, { status: 201 });
 }
+
+// Export handlers with middleware
+export const GET = withMiddleware(
+  (request: NextRequest) => withAuth(request, getTrackedUsers),
+  withErrorHandling,
+  withLogging,
+  withPerformanceMonitoring
+);
+
+export const POST = withMiddleware(
+  (request: NextRequest) => withAuth(request, createTrackedUser),
+  withErrorHandling,
+  withLogging,
+  withPerformanceMonitoring
+);
